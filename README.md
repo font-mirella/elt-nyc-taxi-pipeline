@@ -18,7 +18,7 @@ Transformar arquivos públicos e brutos (Parquet + CSV) numa base analítica con
 |---|---|
 | [Yellow Taxi, Janeiro 2024 (Parquet)](https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_2024-01.parquet) | Fonte principal de viagens. Carregada sem edição manual. Local: `raw/data/yellow_tripdata_2024-01.parquet`. |
 | [Taxi Zone Lookup Table (CSV)](https://d37ci6vzurychx.cloudfront.net/misc/taxi_zone_lookup.csv) | Tabela de referência para traduzir códigos de localização em zona/borough. Local: `raw/data/taxi_zone_lookup.csv`. |
-| [Dicionário de dados, Yellow Taxi](https://www.nyc.gov/assets/tlc/downloads/pdf/data_dictionary_trip_records_yellow.pdf) | Referência para o significado de cada campo. |
+| [Dicionário de dados, Yellow Taxi](https://www.nyc.gov/assets/tlc/downloads/pdf/data_dictionary_trip_records_yellow.pdf) | Referência para o significado de cada campo. PDF salvo em `docs/data_dictionary_trip_records_yellow.pdf`; versão traduzida e cruzada com o schema real em [`docs/dicionario_dados.md`](docs/dicionario_dados.md). |
 
 ## Stack
 
