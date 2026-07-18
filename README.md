@@ -16,13 +16,13 @@ Transformar arquivos públicos e brutos (Parquet + CSV) numa base analítica con
 
 | Recurso | Uso |
 |---|---|
-| [Yellow Taxi, Janeiro 2024 (Parquet)](https://www.nyc.gov/site/tlc/about/tlc-trip-record-data.page) | Fonte principal de viagens. Carregada sem edição manual. |
-| Taxi Zone Lookup Table (CSV) | Tabela de referência para traduzir códigos de localização em zona/borough. |
-| Dicionário de dados, Yellow Taxi | Referência para o significado de cada campo. |
+| [Yellow Taxi, Janeiro 2024 (Parquet)](https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_2024-01.parquet) | Fonte principal de viagens. Carregada sem edição manual. Local: `raw/data/yellow_tripdata_2024-01.parquet`. |
+| [Taxi Zone Lookup Table (CSV)](https://d37ci6vzurychx.cloudfront.net/misc/taxi_zone_lookup.csv) | Tabela de referência para traduzir códigos de localização em zona/borough. Local: `raw/data/taxi_zone_lookup.csv`. |
+| [Dicionário de dados, Yellow Taxi](https://www.nyc.gov/assets/tlc/downloads/pdf/data_dictionary_trip_records_yellow.pdf) | Referência para o significado de cada campo. |
 
 ## Stack
 
-- **DuckDB** — banco analítico embutido, consulta Parquet/CSV diretamente via SQL.
+- **DuckDB** (via Docker) — banco analítico embutido, consulta Parquet/CSV diretamente via SQL.
 - **SQL** — única linguagem permitida para extração, tratamento e modelagem.
 - **GitHub** — versionamento e colaboração.
 - **Linear** — gestão de tarefas.
@@ -31,7 +31,7 @@ Transformar arquivos públicos e brutos (Parquet + CSV) numa base analítica con
 ## Estrutura do repositório
 
 ```
-raw/            # scripts de carga do arquivo bruto (fiel à fonte, sem edição manual)
+raw/            # scripts de carga do arquivo bruto (fiel à fonte, sem edição manual) + raw/data/ com os arquivos-fonte
 staging/        # limpeza, padronização e regras de qualidade, por domínio
 model/
   dims/         # uma dimensão por arquivo (dim_tempo, dim_zona, dim_pagamento, ...)
@@ -39,20 +39,26 @@ model/
 analytics/      # consultas finais, uma por perspectiva de negócio (tempo, geografia, financeiro, operação)
 quality/        # consultas de perfilamento e verificações de qualidade (auditoria)
 docs/           # decisões tomadas, alternativas descartadas, papéis da equipe, glossário
+Dockerfile / docker-compose.yml  # ambiente DuckDB com versão fixa, sem instalação local
 run_all.sql     # reconstrói o pipeline inteiro do zero, na ordem correta
 ```
 
 ## Como reproduzir o pipeline
 
 ```bash
-# 1. Instalar o DuckDB (CLI)
-# https://duckdb.org/docs/installation
+# 1. Baixar os arquivos-fonte (ver tabela "Fonte de dados" acima) para:
+#    raw/data/yellow_tripdata_2024-01.parquet
+#    raw/data/taxi_zone_lookup.csv
+# (raw/data/ não é versionado no Git — os arquivos binários ficam só localmente)
 
-# 2. Rodar o pipeline completo a partir da raiz do projeto
-duckdb warehouse.duckdb < run_all.sql
+# 2. Build da imagem com o DuckDB CLI (versão fixa, ver Dockerfile)
+docker compose build
+
+# 3. Rodar o pipeline completo a partir da raiz do projeto
+docker compose run --rm duckdb warehouse.duckdb < run_all.sql
 ```
 
-O pipeline deve poder ser reconstruído do zero apenas com este comando, sem passos manuais.
+Não é necessário instalar o DuckDB localmente. Depois do passo 1 (manual, pois os dados brutos não ficam no Git), o pipeline é reconstruído do zero só com os comandos Docker acima, sem nenhuma edição manual dos dados.
 
 ## Camadas do pipeline
 
