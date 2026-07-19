@@ -27,6 +27,18 @@ Esta tabela documenta o significado de cada campo de `raw_trips`, traduzido e or
 | `Airport_fee` | DOUBLE | Taxa aplicada apenas em embarques nos aeroportos LaGuardia e JFK. | — |
 | `cbd_congestion_fee` | *(não presente)* | Cobrança por corrida da zona de "Congestion Relief" da MTA, em vigor desde 05/01/2025. | — não se aplica a jan/2024, coerente com a ausência do campo em `raw_trips` |
 
+## Dicionário — Taxi Zone Lookup (`raw_zone_lookup`)
+
+Fonte: [TLC Taxi Zone Lookup Table](https://d37ci6vzurychx.cloudfront.net/misc/taxi_zone_lookup.csv). Tipos e domínios conferidos via `DESCRIBE` no schema real.
+
+| Campo | Tipo em `raw_zone_lookup` | Descrição | Valores / domínio |
+|---|---|---|---|
+| `LocationID` | BIGINT | Identificador único da zona de táxi. Chave para `PULocationID`/`DOLocationID` de `raw_trips`. | 1–265 |
+| `Borough` | VARCHAR | Distrito de NY em que a zona está localizada. | `Bronx` · `Brooklyn` · `EWR` · `Manhattan` · `N/A` · `Queens` · `Staten Island` · `Unknown`. `N/A` e `Unknown` são texto literal, não NULL. |
+| `Zone` | VARCHAR | Nome descritivo da zona. | 265 valores distintos, ~1:1 com `LocationID`. |
+| `service_zone` | VARCHAR | Categoria de área de serviço da zona. | `Airports` · `Boro Zone` · `EWR` · `N/A` · `Yellow Zone`. `N/A` também é texto literal. |
+
+
 ## Colunas técnicas adicionadas na carga (não fazem parte da fonte)
 
 | Campo | Descrição |
