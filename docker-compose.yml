@@ -1,0 +1,9 @@
+services:
+  duckdb:
+    build: .
+    volumes:
+      - .:/workspace
+    working_dir: /workspace
+    entrypoint: ["duckdb"]
+    stdin_open: true
+    tty: true

@@ -1,1 +1,4 @@
-dados_brutos/ 
+warehouse.duckdb
+warehouse.duckdb.wal
+raw/data/
+dados_brutos/
