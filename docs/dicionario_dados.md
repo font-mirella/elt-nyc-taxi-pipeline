@@ -6,7 +6,7 @@ Esta tabela documenta o significado de cada campo de `raw_trips`, traduzido e or
 
 | Campo | Tipo em `raw_trips` | Descrição | Valores / domínio |
 |---|---|---|---|
-| `VendorID` | INTEGER | Código do provedor TPEP que forneceu o registro. | Segundo o dicionário (vigente em 2025): 1 = Creative Mobile Technologies, LLC · 2 = Curb Mobility, LLC · 6 = Myle Technologies Inc · 7 = Helix. **Atenção:** essa lista é da versão de mar/2025; para dados de jan/2024 o TLC usava outra lista (ex.: 1 = Creative Mobile Technologies, 2 = VeriFone Inc). Validar os valores distintos reais em `raw_trips` no perfilamento (LED-15) antes de assumir esse mapeamento. |
+| `VendorID` | INTEGER | Código do provedor TPEP que forneceu o registro. | Segundo o dicionário (vigente em 2025): 1 = Creative Mobile Technologies, LLC · 2 = Curb Mobility, LLC · 6 = Myle Technologies Inc · 7 = Helix. **Atenção:** essa lista é da versão de mar/2025 e mapeia nomes; para jan/2024 os nomes podem diferir (ex.: 2 = VeriFone Inc). O perfilamento (LED-15) confirmou que em jan/2024 só aparecem os códigos 1, 2 e 6 (7 = Helix ausente) — ver perfilamento_notas.md. Os códigos estão validados; o mapeamento de nomes de 2024 fica como observação, não como bloqueio. |
 | `tpep_pickup_datetime` | TIMESTAMP | Data e hora em que o taxímetro foi acionado (início da corrida). | — |
 | `tpep_dropoff_datetime` | TIMESTAMP | Data e hora em que o taxímetro foi desligado (fim da corrida). | — |
 | `passenger_count` | BIGINT | Número de passageiros no veículo. Campo preenchido pelo motorista. | — |
@@ -47,9 +47,3 @@ Fonte: [TLC Taxi Zone Lookup Table](https://d37ci6vzurychx.cloudfront.net/misc/t
 | `_source_file` | Nome do arquivo de origem. |
 
 Ver justificativa em [`docs/decisoes.md`](decisoes.md).
-
-## Pendências para o perfilamento (LED-14 a LED-18)
-
-- Confirmar os valores distintos reais de `VendorID` em `raw_trips` — a lista do dicionário é de 2025 e pode não bater com jan/2024.
-- `RatecodeID = 99` ("Null/unknown") e `payment_type = 5` ("Unknown") já são categorias válidas de origem, não erros — não devem ser tratados como nulo/inválido sem critério.
-- Verificar se `tip_amount` de corridas pagas em dinheiro está de fato zerado (esperado pela definição do campo) ou se há inconsistência.
