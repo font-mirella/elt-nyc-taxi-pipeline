@@ -76,9 +76,13 @@ tratamento (staging), com registro em [`docs/decisoes.md`](decisoes.md) quando b
 3. **Divergência com o dicionário em `payment_type`**: valores 5 (Unknown) e 6 (Voided)
    não aparecem em jan/2024 — documentar a divergência (mesmo padrão do caso
    `VendorID`/Helix), sem tratar como erro.
-4. **Teto de distância** (`trip_distance`): investigar além do top 10 de distância extrema e
-   definir um limiar mín./máx. de tratamento em staging (limiar de "distância improvável" já
-   proposto: `> 50 mi` OU razão `dist/fare > 5`).
+4. **Distância improvável** (`trip_distance`): o limiar já está definido e versionado
+   (`> 50 mi` OU razão `dist/fare > 5`, 819 corridas). Falta só decidir em staging o
+   tratamento dessas linhas (marcar com `is_distance_outlier` vs. investigar caso a caso).
+5. **Refinar o detector de distância improvável** (melhoria futura): a razão `dist/fare` é
+   um sinal grosseiro — o limiar 5 é conservador e a cauda decai sem degrau claro. Um sinal
+   mais físico seria a **velocidade implícita** (`distância / duração`), que tem teto real.
+   Avaliar na etapa de modelagem.
 
 Todas as demais colunas foram fechadas sem pendência essencial.
 
@@ -196,26 +200,39 @@ GROUP BY VendorID;
 **Achados:**
 - A maior distância registrada (312.722,3 mi) está associada a uma tarifa de apenas $14,46,
   entre bairros vizinhos de Manhattan — erro de taxímetro, não corrida real.
-- A distribuição da distância pura mostra P99,9 = 33,52 mi e um salto enorme só no P99,99
-  (~2.987 mi) — a "cauda" implausível.
+- A distribuição da distância pura (quantis exatos) é suave: P90 = 8,42 mi, P99 = 20,0 mi,
+  P99,9 = 29,50 mi, P99,99 = 54,47 mi. 99,99% das corridas ficam abaixo de ~54 mi; acima disso
+  há só uma curva fina de extremos (até 312.722 mi), que são erros de taxímetro.
 - **Limiar de distância improvável** definido como `trip_distance > 50 mi` **OU** razão
   `trip_distance / fare_amount > 5`, a partir de uma população de referência
-  (`0 < trip_distance <= 50 AND fare_amount > 0`, onde o P99,9 da razão é 0,72). Resultado:
+  (`0 < trip_distance <= 50 AND fare_amount > 0`, onde o P99,9 da razão é 0,44). Resultado:
   **819 corridas (0,03%)** — 412 por distância, 437 por razão.
+- limiar conservador: a razão só dispara bem acima — P99,99 = 6.78
 - Corridas com `trip_distance = 0` e duração de 0 s ainda aparecem com cobrança. As maiores
   taxas de zero se concentram em `RatecodeID` 5 e 6 (negociada/grupo — esperado); anômalas
   em `RatecodeID = 1` (Standard). Hipóteses: taxa mínima de cancelamento, teste de sistema
   no início do turno, ou taxímetro ligado/desligado no mesmo instante.
 
-**Pendências ⚠️:** investigar além do top 10 de distância extrema; definir o teto de
-tratamento em staging — ver [Pendências em aberto](#pendências-em-aberto).
+**Pendências ⚠️:** definir em staging o tratamento das 819 corridas de distância improvável
+(marcar com `is_distance_outlier` vs. investigar) — ver [Pendências em aberto](#pendências-em-aberto).
 
 ```sql
-SELECT APPROX_QUANTILE(trip_distance, 0.9)   AS p90,
-       APPROX_QUANTILE(trip_distance, 0.99)  AS p99,
-       APPROX_QUANTILE(trip_distance, 0.999) AS p999,
-       APPROX_QUANTILE(trip_distance, 0.9999) AS p9999
-FROM raw_trips;   -- 8,39 · 20,02 · 33,52 · 2.987,03
+SELECT QUANTILE_CONT(trip_distance, 0.9)   AS p90,
+       QUANTILE_CONT(trip_distance, 0.99)  AS p99,
+       QUANTILE_CONT(trip_distance, 0.999) AS p999,
+       QUANTILE_CONT(trip_distance, 0.9999) AS p9999
+FROM raw_trips;   -- 8,42 · 20,0 · 29,50 · 54,47
+
+SELECT
+    QUANTILE_CONT(trip_distance / fare_amount, 0.5) AS p50,
+    QUANTILE_CONT(trip_distance / fare_amount, 0.9) AS p90,
+    QUANTILE_CONT(trip_distance / fare_amount, 0.95) AS p95,
+    QUANTILE_CONT(trip_distance / fare_amount, 0.99) AS p99,
+    QUANTILE_CONT(trip_distance / fare_amount, 0.999) AS p999,
+    QUANTILE_CONT(trip_distance / fare_amount, 0.9999) AS p9999
+FROM raw_trips
+WHERE trip_distance > 0 AND trip_distance <= 50
+AND fare_amount > 0;  -- 0.14 · 0.23 · 0.25 · 0.28 · 0.44 · 6.78
 
 SELECT COUNT(*) FILTER (WHERE trip_distance > 50) AS dist_maior_50,
        COUNT(*) FILTER (WHERE fare_amount > 0 AND trip_distance/fare_amount > 5) AS razao_maior_5,
@@ -582,8 +599,8 @@ GROUP BY congestion_surcharge ORDER BY qnt DESC;
 **Achados:**
 - Regra "só embarque" confirmada: desembarque em aeroporto sem embarque em aeroporto tem
   `Airport_fee = 0.0` em ~90% dos casos.
-- Newark (EWR) descartado como anomalia: `PULocationID = 1` (Newark) sempre tem
-  `Airport_fee = 0.0`, nunca 1.75 — a exclusão de Newark está correta.
+- Newark (EWR) descartado como anomalia: `PULocationID = 1` (Newark) nunca paga
+  `Airport_fee = 1.75` — é 0.0 (292) ou NULO (3). A exclusão de Newark está correta.
 - **Buraco resolvido:** dos 232.752 cobrados a 1.75, só 221.865 têm PU numa zona
   `service_zone = 'Airports'`. As 10.887 restantes → 10.131 são **East Elmhurst**, o bairro
   do Queens onde fica o LaGuardia. **Conclusão:** o critério de "corrida de aeroporto" tem de

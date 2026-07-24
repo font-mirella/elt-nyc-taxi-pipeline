@@ -70,14 +70,30 @@ GROUP BY VendorID;
 
 -- trip_distance 
 
--- Distribuição da distância pura: 99,9% <= 33,52 mi; salto no P99,99 = erro.
-SELECT APPROX_QUANTILE(trip_distance, 0.9)  AS p90,
-       APPROX_QUANTILE(trip_distance, 0.99) AS p99,
-       APPROX_QUANTILE(trip_distance, 0.999)  AS p999,
-       APPROX_QUANTILE(trip_distance, 0.9999) AS p9999
+-- Distribuição da distância pura (quantil EXATO). p90=8,42 · p99=20,0 · p999=29,50 · p9999=54,47.
+SELECT QUANTILE_CONT(trip_distance, 0.9)  AS p90,
+       QUANTILE_CONT(trip_distance, 0.99) AS p99,
+       QUANTILE_CONT(trip_distance, 0.999)  AS p999,
+       QUANTILE_CONT(trip_distance, 0.9999) AS p9999
 FROM raw_trips;
 
--- Limiar de "distância improvável": >50 mi OU razão dist/fare > 5.  Resultado: 819 (0,03%).
+-- Razão dist/fare na população de referência (0<dist<=50, fare>0). p999 exato = 0,44, p9999 = 6.78.
+SELECT
+    QUANTILE_CONT(trip_distance / fare_amount, 0.5) AS p50,
+    QUANTILE_CONT(trip_distance / fare_amount, 0.9) AS p90,
+    QUANTILE_CONT(trip_distance / fare_amount, 0.95) AS p95,
+    QUANTILE_CONT(trip_distance / fare_amount, 0.99) AS p99,
+    QUANTILE_CONT(trip_distance / fare_amount, 0.999) AS p999,
+    QUANTILE_CONT(trip_distance / fare_amount, 0.9999) AS p9999
+FROM raw_trips
+WHERE trip_distance > 0 AND trip_distance <= 50
+AND fare_amount > 0;
+
+-- Determina um limiar de razão dist/fare 
+-- p999=0,44 · p9999=6,78 -> quase toda corrida metrada tem razão < 1; o salto real
+-- é apenas em p9999, por isso, estabelecemos como 5 o limiar.
+
+-- Limiar de "distância improvável": >50 mi OU razão dist/fare > 5.  
 SELECT COUNT(*) FILTER (WHERE trip_distance > 50) AS dist_maior_50,
        COUNT(*) FILTER (WHERE fare_amount > 0 AND trip_distance/fare_amount > 5) AS razao_maior_5,
        COUNT(*) FILTER (WHERE trip_distance > 50 OR (fare_amount > 0 AND trip_distance/fare_amount > 5)) AS total_improvavel
@@ -128,6 +144,17 @@ ORDER BY payment_type;
 
 -- fare_amount 
 
+-- Distribuição por faixa.
+SELECT CASE WHEN fare_amount < 0 THEN 'negativo' 
+            WHEN fare_amount = 0 THEN 'zero'
+            WHEN fare_amount <= 10 THEN 'ate 10' 
+            WHEN fare_amount <= 30 THEN '10 a 30'
+            WHEN fare_amount <= 100 THEN '30 a 100' 
+            ELSE 'acima de 100' END AS faixa,
+       COUNT(*) AS qtd
+FROM raw_trips GROUP BY faixa ORDER BY qtd DESC;
+-- 10 a 30: 1.478.047 · ate 10: 1.027.440 · 30 a 100: 412.801 · negativo: 37.448 · acima de 100: 7.995 · zero: 893
+
 -- Faixa: -899 a 5.000 (máx. em números redondos = teto de sistema).
 SELECT MIN(fare_amount) AS minimo, MAX(fare_amount) AS maximo, AVG(fare_amount) AS media
 FROM raw_trips;
@@ -138,6 +165,9 @@ FROM raw_trips WHERE fare_amount < 0
 GROUP BY payment_type ORDER BY qtd_negativos DESC;
 
 -- extra 
+
+-- Cardinalidade: 48 valores distintos.
+SELECT COUNT(DISTINCT extra) AS valores_distintos FROM raw_trips;   -- 48
 
 -- Valores dominantes 0/2.5/1.0 (sobretaxas fixas TLC); negativos = estorno.
 SELECT extra, COUNT(*) AS qtd
@@ -167,6 +197,30 @@ SELECT payment_type, COUNT(*) AS total,
 FROM raw_trips
 GROUP BY payment_type ORDER BY payment_type;
 
+-- Gorjeta atípica por valor absoluto (tip > 50): 593 corridas.
+SELECT VendorID, tpep_pickup_datetime, trip_distance, fare_amount, tip_amount,
+       total_amount, payment_type,
+       ROUND((tip_amount / NULLIF(fare_amount, 0)) * 100, 2) AS pct_gorjeta_sobre_tarifa
+FROM raw_trips
+WHERE tip_amount > 50
+ORDER BY tip_amount DESC LIMIT 10;
+
+-- Gorjeta maior que a tarifa (outlier / possível erro de digitação): 3.928 corridas.
+SELECT trip_distance, fare_amount, tip_amount, total_amount, payment_type,
+       ROUND((tip_amount / NULLIF(fare_amount, 0)) * 100, 2) AS pct_gorjeta_sobre_tarifa
+FROM raw_trips
+WHERE fare_amount > 0 AND tip_amount > fare_amount
+ORDER BY pct_gorjeta_sobre_tarifa DESC 
+LIMIT 10;
+
+-- Gorjetas atípicas — critério da flag is_tip_outlier (limites registrados):
+-- tip>50 = 593 · (fare>0 AND tip>fare) = 3.928 · qualquer um = 4.213
+SELECT COUNT(*) FILTER (WHERE tip_amount > 50)                                   AS tip_maior_50,
+       COUNT(*) FILTER (WHERE fare_amount > 0 AND tip_amount > fare_amount)      AS tip_maior_fare,
+       COUNT(*) FILTER (WHERE tip_amount > 50
+                        OR (fare_amount > 0 AND tip_amount > fare_amount))       AS is_tip_outlier
+FROM raw_trips;
+
 -- tolls_amount 
 
 -- 92,8% sem pedágio (esperado — trajetos dentro de Manhattan).
@@ -185,6 +239,20 @@ GROUP BY improvement_surcharge
 ORDER BY improvement_surcharge;
 
 -- total_amount + RECONCILIAÇÃO com os componentes 
+
+-- Cardinalidade alta (soma de componentes): 19.241 valores distintos.
+SELECT COUNT(DISTINCT total_amount) AS valores_distintos FROM raw_trips;   -- 19.241
+
+-- Distribuição por faixa 
+SELECT CASE WHEN total_amount < 0 THEN 'negativo' 
+            WHEN total_amount = 0 THEN 'zero'
+            WHEN total_amount <= 10 THEN 'ate 10' 
+            WHEN total_amount <= 30 THEN '10 a 30'
+            WHEN total_amount <= 100 
+            THEN '30 a 100' ELSE 'acima de 100' END AS faixa,
+       COUNT(*) AS qtd
+FROM raw_trips GROUP BY faixa ORDER BY qtd DESC;
+-- 10 a 30: 2.191.202 · 30 a 100: 634.029 · ate 10: 63.497 · acima de 100: 39.976 · negativo: 35.504 · zero: 416
 
 -- 74,3% batem exato com a soma dos componentes.
 SELECT COUNT(*) AS total,
@@ -237,6 +305,11 @@ JOIN raw_zone_lookup l ON t.PULocationID = l.LocationID
 WHERE t.Airport_fee = 1.75 AND l.service_zone <> 'Airports'
 GROUP BY l.Zone, l.Borough, l.service_zone
 ORDER BY qtd DESC LIMIT 5;
+
+-- Newark (PULocationID = 1) nunca paga Airport_fee: só 0.0 (292) ou NULO (3), nunca 1.75.
+SELECT Airport_fee, COUNT(*) AS qnt
+FROM raw_trips WHERE PULocationID = 1
+GROUP BY Airport_fee ORDER BY qnt DESC;
 
 -- GRUPO DE NULOS CONJUNTO (5 colunas) 
 
