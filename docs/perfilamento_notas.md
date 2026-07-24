@@ -41,7 +41,7 @@ as decisões de modelagem derivadas daqui, em [`docs/hipotese_grao.md`](hipotese
 | `extra` | DOUBLE | 0% | -7,5 a 14,25; 48 valores distintos | ✅ |
 | `mta_tax` | DOUBLE | 0% | majoritariamente 0,5; exceções explicadas por RatecodeID | ✅ |
 | `tip_amount` | DOUBLE | 0% | -80 a 428; padrão claro por payment_type | ✅ |
-| `tolls_amount` | DOUBLE | 0% | 92,8% sem pedágio (esperado) | ✅ |
+| `tolls_amount` | DOUBLE | 0% | 92,9% sem pedágio (esperado) | ✅ |
 | `improvement_surcharge` | DOUBLE | 0% | 98,75% em $1,00 (vigente desde nov/2022) | ✅ |
 | `total_amount` | DOUBLE | 0% | -900 a 5.000; 19.241 valores distintos | ✅ |
 | `congestion_surcharge` | DOUBLE | 4,73% | ~91% das corridas em Manhattan pagam 2,5 | ✅ |
@@ -69,7 +69,7 @@ tratamento (staging), com registro em [`docs/decisoes.md`](decisoes.md) quando b
 
 1. **Datas inválidas** (`tpep_*_datetime`): definir o tratamento das 15 corridas fora de
    jan/2024 e das 56 com `dropoff < pickup` — descartar ou marcar como inválidas? Volume
-   desprezível (71 linhas), mas precisa acontecer **antes** de montar a `dim_tempo`.
+   desprezível (71 linhas), mas precisa acontecer **antes** de montar `dim_data`/`dim_hora`.
 2. **Valores monetários negativos (estorno)**: confirmar formalmente a hipótese de
    estorno/cancelamento (concentrada em `payment_type` 3 e 4) e decidir o tratamento —
    recomendação registrada: marcar com flag `is_estorno`, não excluir.
@@ -206,8 +206,8 @@ GROUP BY VendorID;
 - **Limiar de distância improvável** definido como `trip_distance > 50 mi` **OU** razão
   `trip_distance / fare_amount > 5`, a partir de uma população de referência
   (`0 < trip_distance <= 50 AND fare_amount > 0`, onde o P99,9 da razão é 0,44). Resultado:
-  **819 corridas (0,03%)** — 412 por distância, 437 por razão.
-- limiar conservador: a razão só dispara bem acima — P99,99 = 6.78
+   **819 corridas (0,03%)** — 412 pela distância e 437 pela razão, com 30 em ambos os critérios (a união dá 819).
+- limiar conservador: a razão só dispara bem acima — P99,99 = 6,78
 - Corridas com `trip_distance = 0` e duração de 0 s ainda aparecem com cobrança. As maiores
   taxas de zero se concentram em `RatecodeID` 5 e 6 (negociada/grupo — esperado); anômalas
   em `RatecodeID = 1` (Standard). Hipóteses: taxa mínima de cancelamento, teste de sistema
@@ -232,7 +232,7 @@ SELECT
     QUANTILE_CONT(trip_distance / fare_amount, 0.9999) AS p9999
 FROM raw_trips
 WHERE trip_distance > 0 AND trip_distance <= 50
-AND fare_amount > 0;  -- 0.14 · 0.23 · 0.25 · 0.28 · 0.44 · 6.78
+AND fare_amount > 0;  -- 0,14 · 0,23 · 0,25 · 0,28 · 0,44 · 6,78
 
 SELECT COUNT(*) FILTER (WHERE trip_distance > 50) AS dist_maior_50,
        COUNT(*) FILTER (WHERE fare_amount > 0 AND trip_distance/fare_amount > 5) AS razao_maior_5,
@@ -471,6 +471,12 @@ SELECT trip_distance, fare_amount, tip_amount, total_amount, payment_type,
 FROM raw_trips
 WHERE fare_amount > 0 AND tip_amount > fare_amount
 ORDER BY pct_gorjeta_sobre_tarifa DESC LIMIT 10;
+
+SELECT COUNT(*) FILTER (WHERE tip_amount > 50)                                   AS tip_maior_50,
+       COUNT(*) FILTER (WHERE fare_amount > 0 AND tip_amount > fare_amount)      AS tip_maior_fare,
+       COUNT(*) FILTER (WHERE tip_amount > 50
+                        OR (fare_amount > 0 AND tip_amount > fare_amount))       AS is_tip_outlier
+FROM raw_trips;
 ```
 
 ### `tolls_amount` (DOUBLE)
@@ -479,7 +485,7 @@ ORDER BY pct_gorjeta_sobre_tarifa DESC LIMIT 10;
 
 **Nulidade:** 0%.
 
-**Domínio/Cardinalidade:** 92,8% das corridas sem pedágio.
+**Domínio/Cardinalidade:** 92,9% das corridas sem pedágio.
 
 **Achados:** esperado — a maioria dos trajetos de NY acontece dentro de Manhattan; os
 pedágios existentes cobrem trajetos que cruzam pontes/túneis tarifados.
@@ -604,7 +610,9 @@ GROUP BY congestion_surcharge ORDER BY qnt DESC;
 - **Buraco resolvido:** dos 232.752 cobrados a 1.75, só 221.865 têm PU numa zona
   `service_zone = 'Airports'`. As 10.887 restantes → 10.131 são **East Elmhurst**, o bairro
   do Queens onde fica o LaGuardia. **Conclusão:** o critério de "corrida de aeroporto" tem de
-  ser `Airport_fee > 0`, **não** `service_zone = 'Airports'`.
+  ser `COALESCE(Airport_fee, 0) > 0`, **não** `service_zone = 'Airports'`. O `COALESCE` é
+  necessário porque `Airport_fee` é NULL em 140.162 linhas (Flex Fare): sem ele, `NULL > 0`
+  vira UNKNOWN e essas corridas somem tanto do filtro de aeroporto quanto do de não-aeroporto.
 
 **Pendências:** nenhuma.
 

@@ -54,8 +54,9 @@ passageiros e ~11 valores monetários. Os atributos categóricos descritivos sã
 em sua maioria, **códigos isolados de baixa cardinalidade** (`VendorID`, `RatecodeID`,
 `store_and_fwd_flag`, `payment_type`).
 
-Criar uma dimensão de uma coluna para cada um seria ruim. As duas únicas dimensões
-naturalmente "ricas" aqui são **`dim_tempo`** e **`dim_zona`**. Para os códigos pequenos, a
+Criar uma dimensão de uma coluna para cada um seria ruim. As dimensões naturalmente
+"ricas" aqui são as de tempo (**`dim_data`**/**`dim_hora`**) e **`dim_zona`**.
+Para os códigos pequenos, a
 técnica adequada (Kimball) é uma **junk dimension** — uma única dimensão que consolida os
 códigos, com cardinalidade minúscula (máx. ~210 combinações).
 
@@ -64,22 +65,26 @@ códigos, com cardinalidade minúscula (máx. ~210 combinações).
 ## 5. Esboço do Star Schema
 
 ```
-                    ┌──────────────────────┐
-                    │      dim_tempo       │
-                    │   PK: id_tempo_sk    │
-                    └───────────┬──────────┘
-                                │
-    ┌───────────────┐   ┌───────┴───────┐   ┌───────────────────────┐
-    │   dim_zona    │   │  fato_corrida │   │ dim_atributos_corrida │
-    │ PK: id_zona_sk│◄──┤    (Fato)     ├──►│  PK: id_atributos_sk  │
-    └───────────────┘   └───────────────┘   │  (junk dimension)     │
-                                            └───────────────────────┘
+     ┌─────────────────┐        ┌─────────────────┐
+     │    dim_data     │        │    dim_hora     │
+     │ PK: id_data_sk  │        │ PK: id_hora_sk  │
+     └────────┬────────┘        └────────┬────────┘
+              │                          │
+              └──────────┐   ┌───────────┘
+                         │   │
+ ┌───────────────┐   ┌───┴───┴───────┐   ┌───────────────────────┐
+ │   dim_zona    │   │  fato_corrida │   │ dim_atributos_corrida │
+ │ PK: id_zona_sk│◄──┤    (Fato)     ├──►│  PK: id_atributos_sk  │
+ └───────────────┘   └───────────────┘   │  (junk dimension)     │
+                                         └───────────────────────┘
 
     FKs em fato_corrida:
-      id_tempo_sk       → dim_tempo
+      id_data_sk        → dim_data
+      id_hora_sk        → dim_hora
       id_zona_pu_sk     → dim_zona   (papel: embarque)
       id_zona_do_sk     → dim_zona   (papel: desembarque)   ← mesma dim, 2 papéis
       id_atributos_sk   → dim_atributos_corrida
+
 ```
 
 ---
@@ -110,12 +115,15 @@ códigos, com cardinalidade minúscula (máx. ~210 combinações).
 | Campo | Descrição |
 |---|---|
 | `id_corrida_sk` | Surrogate key (gerada no staging) |
-| `id_tempo_sk` | FK → `dim_tempo` |
+| `id_data_sk` | FK → `dim_data` |
+| `id_hora_sk` | FK → `dim_hora` |
 | `id_zona_pu_sk` / `id_zona_do_sk` | FK → `dim_zona` (embarque / desembarque) |
 | `id_atributos_sk` | FK → `dim_atributos_corrida` (junk) |
 | `is_estorno` | Linha de estorno (valor monetário negativo) — ver §8.2 |
 | `is_tip_outlier` | Gorjeta atípica (`tip > 50` ou `% > 100`) — ver §8.3 |
 | `is_distance_outlier` | Distância improvável — ver §8.4 |
+| `is_fare_outlier` | Tarifa no teto de sistema (`fare_amount`/`total_amount` em 5000/2500 exatos) — ver §8.12 |
+
 
 ---
 
@@ -123,7 +131,8 @@ códigos, com cardinalidade minúscula (máx. ~210 combinações).
 
 | Dimensão | Origem | Papel |
 |---|---|---|
-| `dim_tempo` | `tpep_pickup_datetime` | Dia, mês, hora, dia da semana, turno — pré-computados no staging |
+| `dim_data` | `tpep_pickup_datetime` (parte data) | Dia, mês, dia da semana, feriado — 1 linha por dia |
+| `dim_hora` | `tpep_pickup_datetime` (parte hora) | Hora, minuto, turno — 1 linha por hora/minuto do dia, reaproveitada entre os dias (evita produto cartesiano) |
 | `dim_zona` | `raw_zone_lookup` | Borough, Zone, service_zone (embarque e desembarque) |
 | `dim_atributos_corrida` (junk) | `VendorID`, `RatecodeID`, `payment_type`, `store_and_fwd_flag` | Consolida os códigos categóricos de baixa cardinalidade, decodificados |
 
@@ -170,10 +179,10 @@ ou marcar como `Unknown`.
 
 ### 8.7 Datas inválidas (`tpep_*_datetime`)
 15 corridas fora de jan/2024 + 56 com dropoff antes do pickup. **Staging:** descartar ou marcar
-como inválidas **antes** de montar a `dim_tempo`. Volume desprezível (71 linhas).
+como inválidas **antes** de montar `dim_data`/`dim_hora`. Volume desprezível (71 linhas).
 
 ### 8.8 Critério de "corrida de aeroporto"
-O `Airport_fee > 0` é o critério correto — **não** `service_zone = 'Airports'`. ~10,9 mil
+O `COALESCE(Airport_fee, 0) > 0` é o critério correto — **não** `service_zone = 'Airports'`. ~10,9 mil
 corridas de aeroporto (ex.: East Elmhurst, bairro do LaGuardia) ficam fora da zona `Airports`.
 **Modelagem:** derivar o atributo de aeroporto a partir de `Airport_fee`, não da zona.
 
@@ -193,7 +202,8 @@ recomputado a partir das medidas na modelagem, revisitar esse tratamento.
 
 ### 8.12 Teto de sistema em `fare_amount` / `total_amount`
 Valores máximos concentrados em números redondos (5000.0 e 2500.0 exatos, repetidos) sugerem
-teto de sistema, não tarifas reais. Considerar ao definir faixas de valor válido no staging.
+teto de sistema, não tarifas reais. **Fato:** flag `is_fare_outlier`, no mesmo padrão de
+`is_distance_outlier`/`is_tip_outlier` — marcar, não excluir.
 
 ---
 

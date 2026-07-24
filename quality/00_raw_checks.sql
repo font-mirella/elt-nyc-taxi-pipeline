@@ -223,7 +223,7 @@ FROM raw_trips;
 
 -- tolls_amount 
 
--- 92,8% sem pedágio (esperado — trajetos dentro de Manhattan).
+-- 92,9% sem pedágio (esperado — trajetos dentro de Manhattan).
 SELECT SUM(CASE WHEN tolls_amount < 0 THEN 1 ELSE 0 END) AS negativos,
        SUM(CASE WHEN tolls_amount = 0 THEN 1 ELSE 0 END) AS sem_pedagio,
        SUM(CASE WHEN tolls_amount > 0 THEN 1 ELSE 0 END) AS com_pedagio
@@ -287,8 +287,8 @@ GROUP BY congestion_surcharge ORDER BY qnt DESC;
 WITH manhattan_ids AS (SELECT LocationID FROM raw_zone_lookup WHERE Borough = 'Manhattan')
 SELECT congestion_surcharge, COUNT(*) AS qnt
 FROM raw_trips
-WHERE PULocationID NOT IN (SELECT LocationID FROM manhattan_ids)
-  AND DOLocationID NOT IN (SELECT LocationID FROM manhattan_ids)
+WHERE PULocationID IS NOT DISTINCT FROM (SELECT LocationID FROM manhattan_ids)
+  AND DOLocationID IS NOT DISTINCT FROM (SELECT LocationID FROM manhattan_ids)
 GROUP BY congestion_surcharge ORDER BY qnt DESC;
 
 -- Airport_fee 
