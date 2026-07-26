@@ -22,6 +22,10 @@ pickup_datetime,
 dropoff_datetime,
 trip_distance,
 passenger_count,
+ratecode_id,
+store_and_fwd_flag,
+pu_location_id,
+do_location_id,
 fare_amount,
 tip_amount,
 total_amount,
@@ -73,23 +77,30 @@ END AS day_part,
 
 DAYOFWEEK(pickup_datetime) AS pickup_day,
 
-CASE 
+CASE
     WHEN DAYOFWEEK(pickup_datetime)=1 OR DAYOFWEEK(pickup_datetime)=7
-    THEN TRUE 
-    ELSE FALSE 
+    THEN TRUE
+    ELSE FALSE
  END AS final_de_semana,
 
+-- Estorno (regras_limpeza.md item 2): mantém a linha, não exclui - quem consome decide se soma
+fare_amount < 0 AS is_estorno,
+
+-- Velocidade anômala (regras_limpeza.md item 5): mantém a linha, não exclui - limiar >50mph
+-- validado por quantil (p99,9), mesma assinatura de erro de captura do item 4
+DATEDIFF('second', pickup_datetime, dropoff_datetime) > 0
+    AND trip_distance > 0
+    AND (trip_distance / (DATEDIFF('second', pickup_datetime, dropoff_datetime) / 3600.0)) > 50
+    AS is_speed_outlier,
+
 -- Flags de Auditoria e Qualidade
-CASE 
-    WHEN (fare_amount < 0 OR total_amount < 0) THEN 'REJEITADO_ESTORNO'
+-- Distância zero com cobrança (regras_limpeza.md item 4b) não é rejeitada aqui: correlação
+-- duração x tarifa continua fraca para RatecodeID=1, e para as demais tarifas (2, 5, 6...)
+-- distância zero + cobrança é o padrão esperado de tarifa fixa/negociada, não anomalia.
+CASE
     WHEN (dropoff_datetime <= pickup_datetime) THEN 'REJEITADO_TEMPO_INVALIDO'
-    WHEN (trip_distance = 0 AND fare_amount > 0) THEN 'REJEITADO_DISTANCIA_ZERO'
-    WHEN (passenger_count IS NULL OR passenger_count <= 0) THEN 'REJEITADO_PASSAGEIRO_INVALIDO'
-    WHEN (
-        trip_distance > 0 
-        AND DATEDIFF('second', pickup_datetime, dropoff_datetime) > 0 
-        AND (trip_distance / (DATEDIFF('second', pickup_datetime, dropoff_datetime) / 3600.0)) > 100
-    ) THEN 'REJEITADO_VELOCIDADE_ANORMAL'
+    -- passenger_count NULL é ausência estrutural do payment_type=0/Flex Fare (regras_limpeza.md item 6), não é inválido
+    WHEN (passenger_count <= 0) THEN 'REJEITADO_PASSAGEIRO_INVALIDO'
     ELSE 'APROVADO'
 END AS status_registro
 FROM staging_trips;
@@ -109,6 +120,10 @@ tip_amount,
 total_amount,
 payment_type,
 passenger_count,
+ratecode_id,
+store_and_fwd_flag,
+pu_location_id,
+do_location_id,
 trip_duration_minutes,
 trip_avg_speed_mph,
 tip_percentage,
@@ -117,15 +132,11 @@ pickup_hour,
 day_part,
 pickup_day,
 final_de_semana,
-
-CASE 
-    WHEN (fare_amount<0 or total_amount<0) THEN 'VALOR_NEGATIVO_ESTORNO'
-    WHEN (dropoff_datetime <= pickup_datetime) THEN 'TEMPO_INVALIDO'
-    WHEN (trip_distance = 0 AND fare_amount > 0) THEN 'DISTANCIA_ZERO_COM_COBRANCA'
-    WHEN (passenger_count IS NULL OR passenger_count<=0) THEN 'VIAGEM_SEM_PASSAGEIRO'
-    ELSE 'OUTRA_INCONSISTENCIA'
-END AS rejection_reason, 
-
+is_estorno,
+is_speed_outlier,
+-- Reaproveita status_registro em vez de recalcular a classificação (evita as duas
+-- lógicas divergirem de novo, como já aconteceu antes com REJEITADO_VELOCIDADE_ANORMAL)
+status_registro AS rejection_reason
 FROM stg_yellow_trips
 WHERE status_registro LIKE 'REJEITADO%';
 
@@ -142,6 +153,11 @@ fare_amount,
 tip_amount,
 total_amount,
 payment_type,
+passenger_count,
+ratecode_id,
+store_and_fwd_flag,
+pu_location_id,
+do_location_id,
 trip_duration_minutes,
 trip_avg_speed_mph,
 tip_percentage,
@@ -149,7 +165,9 @@ price_per_mile,
 pickup_hour,
 day_part,
 pickup_day,
-final_de_semana
+final_de_semana,
+is_estorno,
+is_speed_outlier
 FROM stg_yellow_trips
 WHERE status_registro = 'APROVADO';
 

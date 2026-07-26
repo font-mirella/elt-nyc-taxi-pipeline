@@ -89,20 +89,41 @@ explicitamente quando relevante.
 *(§8.5 da hipótese de grão — dentro das 60.371 linhas de `trip_distance = 0`, a maioria é
 esperada em `RatecodeID` 5/6, mas ~22 mil em Standard são anômalas.)*
 
+**Reavaliado em LED-23/25**, agora com `trip_duration_minutes` disponível na staging: repeti a
+correlação duração×tarifa especificamente para `ratecode_id = 1 AND trip_distance = 0 AND
+fare_amount > 0` (19.696 linhas) — `corr(duração, fare_amount) = 0,27`. A correlação continua
+fraca (a disponibilidade da duração não era o bloqueio real; a fraqueza do sinal, sim), então
+**a decisão não muda**.
+
 **Classificação:** Incomum.
 
 **Regra:** **Manter**, sem flag dedicada nesta entrega — volume relevante (22 mil) mas sem
 critério de outlier tão claro quanto os itens acima (correlação fraca entre duração e
-tarifa não permite um limiar seguro ainda). Registrado como melhoria futura (junto com o
-item 5), não bloqueia a modelagem atual.
+tarifa não permite um limiar seguro ainda). Registrado como melhoria futura, não bloqueia a
+modelagem atual. **Importante:** essa decisão vale só para `RatecodeID = 1`. Para as demais
+tarifas (`RatecodeID` 2, 5, 6 etc.), `trip_distance = 0` com `fare_amount > 0` é o padrão
+esperado de tarifa fixa/negociada, não uma anomalia — não deve ser tratado com o mesmo
+critério nem quarentenado.
 
 ### 5. Refinar detector de distância com velocidade implícita
 
 *(Pendência 5 do perfilamento — melhoria futura, não bloqueante.)*
 
-**Regra:** Não implementar nesta entrega. O limiar do item 4 é a regra vigente. Registrado
-como próximo passo para quando `dim_data`/`dim_hora` (e portanto a duração da viagem)
-estiverem disponíveis na fato.
+**Implementado em LED-23/25**, agora que `trip_duration_minutes` está disponível na staging —
+a precondição que este item deixava em aberto. Perfilamento da velocidade implícita
+(`trip_distance / duração_h`, para viagens com duração e distância > 0, 2.904.141 linhas):
+p99 = 37,1mph; **p99,9 = 49,1mph**; p99,99 = 1.605mph (cauda extrema de erro de captura).
+Acima de 100mph: 1.024 corridas (0,035%), com duração mediana de 13s e distância mediana de
+2,8mi — mesma assinatura do item 4 (corrida curta com erro de GPS/taxímetro, não velocidade
+real).
+
+**Classificação:** Incomum/outlier de captura (mesma causa-raiz do item 4).
+
+**Regra:** **Manter** a linha; `is_speed_outlier BOOLEAN` na `fato_corrida`, usando o limiar
+`trip_avg_speed_mph > 50` (arredondado a partir do p99,9 validado acima, mesmo método do item
+4). Consultas de distância/velocidade filtram essa flag explicitamente quando relevante —
+**não excluir**, pelo mesmo motivo do item 4: o erro tem leitura de negócio (captura), não é
+"sem leitura de negócio possível" (critério que justificaria exclusão, ver item 1).
 
 ### 6. Grupo de nulos conjunto — `payment_type = 0`, 140.162 linhas
 
@@ -180,8 +201,8 @@ revisitar esta decisão.
 | 2 | Valores monetários negativos | Manter + `is_estorno` |
 | 3 | `payment_type` 5/6 ausentes | Documentado; dimensão prevê os códigos |
 | 4 | Distância improvável (819) | Manter + `is_distance_outlier` |
-| 4b | Distância zero em Standard | Manter, sem flag (melhoria futura) |
-| 5 | Detector por velocidade | Não implementado nesta entrega |
+| 4b | Distância zero em Standard | Manter, sem flag (reavaliado LED-23/25, correlação continua fraca) |
+| 5 | Detector por velocidade | Manter + `is_speed_outlier` (>50mph, implementado LED-23/25) |
 | 6 | Nulos ligados a `payment_type=0` | `NULL` mantido nas medidas; membro "Não se aplica" nas dims |
 | 7 | Gorjetas atípicas (4.213) | Manter + `is_tip_outlier` |
 | 8 | Critério de aeroporto | `is_aeroporto = COALESCE(Airport_fee,0) > 0` |
