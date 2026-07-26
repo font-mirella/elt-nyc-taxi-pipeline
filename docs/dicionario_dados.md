@@ -35,7 +35,7 @@ Fonte: [TLC Taxi Zone Lookup Table](https://d37ci6vzurychx.cloudfront.net/misc/t
 |---|---|---|---|
 | `LocationID` | BIGINT | Identificador único da zona de táxi. Chave para `PULocationID`/`DOLocationID` de `raw_trips`. | 1–265 |
 | `Borough` | VARCHAR | Distrito de NY em que a zona está localizada. | `Bronx` · `Brooklyn` · `EWR` · `Manhattan` · `N/A` · `Queens` · `Staten Island` · `Unknown`. `N/A` e `Unknown` são texto literal, não NULL. |
-| `Zone` | VARCHAR | Nome descritivo da zona. | 265 valores distintos, ~1:1 com `LocationID`. |
+| `Zone` | VARCHAR | Nome descritivo da zona. | 262 valores distintos para 265 `LocationID` — não é 1:1: `Governor's Island/Ellis Island/Liberty Island` cobre os IDs 103/104/105, `Corona` cobre 56/57. `LocationID` é a chave, não `Zone`. |
 | `service_zone` | VARCHAR | Categoria de área de serviço da zona. | `Airports` · `Boro Zone` · `EWR` · `N/A` · `Yellow Zone`. `N/A` também é texto literal. |
 
 

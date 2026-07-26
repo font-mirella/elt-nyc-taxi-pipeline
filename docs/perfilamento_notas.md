@@ -28,7 +28,7 @@ as decisões de modelagem derivadas daqui, em [`docs/hipotese_grao.md`](hipotese
 | Coluna | Tipo | Nulidade | Domínio (resumo) | Status |
 |---|---|---|---|---|
 | `VendorID` | INTEGER | 0% | 1, 2, 6 — código do provedor de tecnologia, não do motorista | ✅ |
-| `tpep_pickup_datetime` | TIMESTAMP | 0% | 2002–2024; 15 corridas fora de 2024 | ⚠️ |
+| `tpep_pickup_datetime` | TIMESTAMP | 0% | 2002–2024; 18 corridas fora de jan/2024  | ⚠️ |
 | `tpep_dropoff_datetime` | TIMESTAMP | 0% | 56 corridas com dropoff antes do pickup | ⚠️ |
 | `passenger_count` | BIGINT | 4,73% | 0–9; `0` concentrado no VendorID 1 (4,3%) | ✅ |
 | `trip_distance` | DOUBLE | 0% | 0 a 312.722 milhas; outliers extremos identificados | ⚠️ |
@@ -57,7 +57,7 @@ as decisões de modelagem derivadas daqui, em [`docs/hipotese_grao.md`](hipotese
 |---|---|---|---|---|
 | `LocationID` | BIGINT | 0% | 1–265 | ✅ |
 | `Borough` | VARCHAR | 0% | 8 valores; `N/A` e `Unknown` como **texto literal** | ✅ |
-| `Zone` | VARCHAR | 0% | 265 valores distintos (~1:1 com LocationID) | ✅ |
+| `Zone` | VARCHAR | 0% | 262 valores distintos para 265 LocationID — nomes repetidos, ver §raw_zone_lookup | ✅ |
 | `service_zone` | VARCHAR | 0% | `Airports`, `Boro Zone`, `EWR`, `N/A`, `Yellow Zone` | ✅ |
 
 ---
@@ -67,9 +67,10 @@ as decisões de modelagem derivadas daqui, em [`docs/hipotese_grao.md`](hipotese
 Decisões que **não** são fechadas no perfilamento e precisam ser resolvidas na camada de
 tratamento (staging), com registro em [`docs/decisoes.md`](decisoes.md) quando batidas:
 
-1. **Datas inválidas** (`tpep_*_datetime`): definir o tratamento das 15 corridas fora de
-   jan/2024 e das 56 com `dropoff < pickup` — descartar ou marcar como inválidas? Volume
-   desprezível (71 linhas), mas precisa acontecer **antes** de montar `dim_data`/`dim_hora`.
+1. **Datas inválidas** (`tpep_*_datetime`): definir o tratamento das 18 corridas fora de
+   janeiro/2024 e das 56 com `dropoff < pickup` — descartar ou marcar como inválidas? Volume
+   desprezível (74 linhas), mas precisa acontecer **antes** de montar `dim_data`/`dim_hora`.
+   Somam-se a isso as 814 corridas com `dropoff = pickup`, que o filtro `<` não alcança.
 2. **Valores monetários negativos (estorno)**: confirmar formalmente a hipótese de
    estorno/cancelamento (concentrada em `payment_type` 3 e 4) e decidir o tratamento —
    recomendação registrada: marcar com flag `is_estorno`, não excluir.
@@ -138,14 +139,17 @@ SELECT (SELECT COUNT(*) FROM raw_trips) AS total_linhas,
 só janeiro/2024).
 
 **Achados:**
-- 15 corridas com pickup fora do intervalo de 2024 — devem ser descartadas da análise.
-- 56 corridas com dropoff antes do pickup — fisicamente impossível; volume pequeno, mas
-  conceitualmente relevante.
-- Corridas com pickup em janeiro e dropoff em fevereiro/2024 são **legítimas** (não contam
-  como problema).
+- 15 corridas com pickup fora do **ano** de 2024 (a mais antiga em 2002) — lixo de taxímetro.
+- 18 corridas com pickup fora do **mês** de janeiro/2024, incluindo as 15 acima. É este o
+  recorte relevante para a regra de limpeza, já que a fonte é só jan/2024.
+- 56 corridas com dropoff antes do pickup — fisicamente impossível.
+- 814 corridas com dropoff igual ao pickup (duração exatamente zero). Não são capturadas pelo
+  filtro `dropoff < pickup` e impedem qualquer cálculo de velocidade nessas linhas.
+- 600 corridas com pickup em janeiro e dropoff em fevereiro/2024 (até 02/02) são legítimas — atravessam a virada do mês. Definem o limite superior de `dim_data`.
 
-**Pendências ⚠️:** tratamento das 15 + 56 corridas (descartar? marcar como inválidas?) —
-decisão de staging, ver [Pendências em aberto](#pendências-em-aberto).
+**Pendências ⚠️:** tratamento das 18 + 56 = 74 corridas inválidas e decisão sobre as 814 de
+duração zero — ver [Pendências em aberto](#pendências-em-aberto).
+
 
 ```sql
 SELECT MIN(tpep_pickup_datetime) AS primeira_partida, MAX(tpep_pickup_datetime) AS ultima_partida,
@@ -159,6 +163,23 @@ WHERE tpep_pickup_datetime < '2024-01-01' OR tpep_pickup_datetime >= '2025-01-01
 SELECT COUNT(*) AS viagens_invertidas
 FROM raw_trips
 WHERE tpep_dropoff_datetime < tpep_pickup_datetime;   -- 56
+
+SELECT COUNT(*) AS total_fora_de_jan_2024
+FROM raw_trips
+WHERE tpep_pickup_datetime < '2024-01-01' OR tpep_pickup_datetime >= '2024-02-01';   -- 18
+
+SELECT COUNT(*) AS total_invalidas
+FROM raw_trips
+WHERE (tpep_pickup_datetime < '2024-01-01' OR tpep_pickup_datetime >= '2024-02-01')
+   OR tpep_dropoff_datetime < tpep_pickup_datetime;   -- 74
+
+SELECT COUNT(*) AS duracao_zero
+FROM raw_trips WHERE tpep_dropoff_datetime = tpep_pickup_datetime;   -- 814
+
+SELECT COUNT(*) AS dropoff_apos_janeiro, MAX(tpep_dropoff_datetime) AS ultimo_dropoff
+FROM raw_trips
+WHERE tpep_pickup_datetime >= '2024-01-01' AND tpep_pickup_datetime < '2024-02-01'
+  AND tpep_dropoff_datetime >= '2024-02-01';   -- 600 · 2024-02-02
 ```
 
 ### `passenger_count` (BIGINT)
@@ -681,6 +702,10 @@ GROUP BY VendorID ORDER BY VendorID;   -- 1: 48.455 · 2: 91.447 · 6: 260
 - `N/A` e `Unknown` aparecem em `Borough`, `service_zone` e `Zone` como **texto literal**, não
   como `NULL`. **dim_zona:** normalizar explicitamente ao montar a dimensão (um filtro
   `IS NULL` não os captura).
+- `Zone` não é 1:1 com `LocationID`: 262 nomes distintos para 265 IDs.
+  `Governor's Island/Ellis Island/Liberty Island` cobre 103, 104 e 105; `Corona` cobre 56 e 57.
+  Explica por que 103 e 104 nunca aparecem em `PULocationID`/`DOLocationID` (achado da seção
+  anterior) — são rótulos alternativos de 105. A chave da zona é `LocationID`, não `Zone`.
 
 **Pendências:** nenhuma.
 
@@ -694,4 +719,20 @@ SELECT COUNT(*) FILTER (WHERE Borough = 'N/A') AS borough_na,
        COUNT(*) FILTER (WHERE service_zone = 'N/A') AS servicezone_na,
        COUNT(*) FILTER (WHERE Zone = 'N/A') AS zone_na
 FROM raw_zone_lookup;   -- 1 · 1 · 2 · 1
+
+
+SELECT COUNT(*) AS zonas, 
+       COUNT(DISTINCT LocationID) AS ids, 
+       COUNT(DISTINCT Zone) AS nomes
+FROM raw_zone_lookup;
+-- 265 · 265 · 262
+
+SELECT Zone, 
+       COUNT(*) AS n, 
+       LIST(LocationID) AS ids
+FROM raw_zone_lookup 
+GROUP BY Zone 
+HAVING COUNT(*) > 1;
+-- Governor's Island/Ellis Island/Liberty Island · 3 · [103, 104, 105]
+-- Corona                                        · 2 · [56, 57]
 ```

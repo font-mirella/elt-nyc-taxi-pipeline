@@ -46,15 +46,25 @@ SELECT MIN(tpep_pickup_datetime) AS primeira_partida, MAX(tpep_pickup_datetime) 
        MIN(tpep_dropoff_datetime) AS primeira_chegada, MAX(tpep_dropoff_datetime) AS ultima_chegada
 FROM raw_trips;
 
--- 15 corridas fora de jan/2024.
+-- 15 corridas fora de 2024.
 SELECT COUNT(*) AS total_fora_de_2024
 FROM raw_trips
 WHERE tpep_pickup_datetime < '2024-01-01' OR tpep_pickup_datetime >= '2025-01-01';
+
+-- 18 corridas fora de JANEIRO/2024.
+SELECT COUNT(*) AS total_fora_de_2024
+FROM raw_trips
+WHERE tpep_pickup_datetime < '2024-01-01' OR tpep_pickup_datetime >= '2024-02-01';
+
 
 -- 56 corridas com dropoff antes do pickup (fisicamente impossível).
 SELECT COUNT(*) AS viagens_invertidas
 FROM raw_trips
 WHERE tpep_dropoff_datetime < tpep_pickup_datetime;
+
+-- 814 corridas com `dropoff = pickup` (duração exatamente zero)
+-- Duração zero com cobrança quebra qualquer métrica de velocidade (divisão por zero)
+SELECT COUNT(*) FROM raw_trips WHERE tpep_dropoff_datetime = tpep_pickup_datetime; 
 
 -- passenger_count  
 
@@ -311,6 +321,14 @@ SELECT Airport_fee, COUNT(*) AS qnt
 FROM raw_trips WHERE PULocationID = 1
 GROUP BY Airport_fee ORDER BY qnt DESC;
 
+-- A fonte distingue 0 de NULL nas duas sobretaxas: existe zero explícito (não pagou) e
+-- existe ausência (campo não se aplica ao registro). Converter NULL em 0 apagaria a diferença.
+SELECT COUNT(*) FILTER (WHERE congestion_surcharge = 0)    AS congestion_zero_explicito,
+       COUNT(*) FILTER (WHERE congestion_surcharge IS NULL) AS congestion_nulo,
+       COUNT(*) FILTER (WHERE Airport_fee = 0)              AS airport_zero_explicito,
+       COUNT(*) FILTER (WHERE Airport_fee IS NULL)          AS airport_nulo
+FROM raw_trips;   -- 217.877 · 140.162 · 2.586.789 · 140.162
+
 -- GRUPO DE NULOS CONJUNTO (5 colunas) 
 
 -- Interseção das 5 colunas nulas = 140.162 (sempre o mesmo grupo de linhas).
@@ -341,3 +359,24 @@ SELECT COUNT(*) FILTER (WHERE Borough = 'N/A') AS borough_na,
        COUNT(*) FILTER (WHERE service_zone = 'N/A') AS servicezone_na,
        COUNT(*) FILTER (WHERE Zone = 'N/A') AS zone_na
 FROM raw_zone_lookup;
+
+-- Zone não é 1:1 com LocationID: nomes de zona repetidos para IDs diferentes.
+SELECT Zone, COUNT(*) AS qtd_ids, LIST(LocationID) AS location_ids
+FROM raw_zone_lookup
+GROUP BY Zone
+HAVING COUNT(*) > 1
+ORDER BY qtd_ids DESC;
+-- Governor's Island/Ellis Island/Liberty Island -> 3 (103, 104, 105)
+-- Corona -> 2 (56, 57)
+
+SELECT COUNT(DISTINCT LocationID) AS ids_distintos, 
+       COUNT(DISTINCT Zone) AS zonas_distintas
+FROM raw_zone_lookup;   -- 265 · 262
+
+-- Integridade referencial no sentido oposto ao já versionado: toda linha de raw_trips
+-- tem que ter PULocationID/DOLocationID presentes na lookup 
+SELECT COUNT(*) AS pu_orfaos FROM raw_trips t
+WHERE NOT EXISTS (SELECT 1 FROM raw_zone_lookup z WHERE z.LocationID = t.PULocationID);
+SELECT COUNT(*) AS do_orfaos FROM raw_trips t
+WHERE NOT EXISTS (SELECT 1 FROM raw_zone_lookup z WHERE z.LocationID = t.DOLocationID);
+
