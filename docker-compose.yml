@@ -7,3 +7,25 @@ services:
     entrypoint: ["duckdb"]
     stdin_open: true
     tty: true
+
+  metabase:
+    # Build local sobre uma base Debian/glibc (ver Dockerfile.metabase), não a imagem
+    # oficial metabase/metabase (Alpine/musl): falta libstdc++.so.6 para o driver nativo
+    # do DuckDB, e completar via gcompat troca isso por um SIGSEGV em
+    # init_have_lse_atomics (bug conhecido do gcompat em detecção de CPU no ARM64/Apple
+    # Silicon). É a solução documentada pelo próprio driver community, não um contorno.
+    build:
+      context: .
+      dockerfile: Dockerfile.metabase
+    container_name: metabase
+    ports:
+      - "3180:3000"
+    volumes:
+      - ./warehouse.duckdb:/data/warehouse.duckdb:ro
+      - metabase-data:/home/metabase/data
+    environment:
+      MB_DB_FILE: /home/metabase/data/metabase.db
+    restart: unless-stopped
+
+volumes:
+  metabase-data:
