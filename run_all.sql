@@ -10,3 +10,4 @@
 .read model/dims/04_dim_pagamento.sql
 .read model/dims/05_dim_atributos_corrida.sql
 .read model/facts/01_fato_corrida.sql
+.read quality/02_model_checks.sql
