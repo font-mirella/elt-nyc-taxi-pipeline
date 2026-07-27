@@ -30,6 +30,7 @@ fare_amount,
 tip_amount,
 total_amount,
 payment_type,
+airport_fee,
 
 --Duração da viagem
 ROUND(DATEDIFF(
@@ -93,14 +94,40 @@ DATEDIFF('second', pickup_datetime, dropoff_datetime) > 0
     AND (trip_distance / (DATEDIFF('second', pickup_datetime, dropoff_datetime) / 3600.0)) > 50
     AS is_speed_outlier,
 
+-- Distância improvável (regras_limpeza.md item 4): limiar validado por quantil exato
+-- (p99,9 dist=29,5mi, p99,9 razão dist/fare=0,44), versionado em quality/00_raw_checks.sql
+trip_distance > 50
+    OR (fare_amount > 0 AND trip_distance / fare_amount > 5)
+    AS is_distance_outlier,
+
+-- Gorjeta atípica (regras_limpeza.md item 7): tip>50 (lançamento avulso) ou tip>fare
+-- (possível erro de digitação), mesmo critério versionado em quality/00_raw_checks.sql
+tip_amount > 50
+    OR (fare_amount > 0 AND tip_amount > fare_amount)
+    AS is_tip_outlier,
+
+-- Teto de sistema (regras_limpeza.md item 11): valores máximos concentrados em 5000/2500
+-- exatos, não tarifas reais (docs/hipotese_grao.md §8.12)
+fare_amount IN (2500.0, 5000.0)
+    OR total_amount IN (2500.0, 5000.0)
+    AS is_fare_outlier,
+
+-- Critério de aeroporto (regras_limpeza.md item 8): Airport_fee > 0, não service_zone =
+-- 'Airports' (perderia ~10.887 corridas de East Elmhurst/LaGuardia fora da zona oficial)
+COALESCE(airport_fee, 0) > 0 AS is_aeroporto,
+
 -- Flags de Auditoria e Qualidade
 -- Distância zero com cobrança (regras_limpeza.md item 4b) não é rejeitada aqui: correlação
 -- duração x tarifa continua fraca para RatecodeID=1, e para as demais tarifas (2, 5, 6...)
 -- distância zero + cobrança é o padrão esperado de tarifa fixa/negociada, não anomalia.
 CASE
-    WHEN (dropoff_datetime <= pickup_datetime) THEN 'REJEITADO_TEMPO_INVALIDO'
-    -- passenger_count NULL é ausência estrutural do payment_type=0/Flex Fare (regras_limpeza.md item 6), não é inválido
-    WHEN (passenger_count <= 0) THEN 'REJEITADO_PASSAGEIRO_INVALIDO'
+    -- regras_limpeza.md item 1: fora do escopo temporal do desafio - mesmo limite auditado
+    -- em quality/00_raw_checks.sql (15 linhas fora do ano 2024)
+    WHEN (pickup_datetime < '2024-01-01' OR pickup_datetime >= '2025-01-01') THEN 'REJEITADO_FORA_DO_PERIODO'
+    -- regras_limpeza.md item 1: dropoff antes do pickup viola a física do evento - limite
+    -- estrito (<), igual ao auditado em quality/00_raw_checks.sql (56 linhas); dropoff==pickup
+    -- é duração zero legítima (mesma categoria de trip_distance=0), não é a mesma anomalia
+    WHEN (dropoff_datetime < pickup_datetime) THEN 'REJEITADO_DROPOFF_ANTES_PICKUP'
     ELSE 'APROVADO'
 END AS status_registro
 FROM staging_trips;
@@ -119,6 +146,7 @@ fare_amount,
 tip_amount,
 total_amount,
 payment_type,
+airport_fee,
 passenger_count,
 ratecode_id,
 store_and_fwd_flag,
@@ -134,6 +162,10 @@ pickup_day,
 final_de_semana,
 is_estorno,
 is_speed_outlier,
+is_distance_outlier,
+is_tip_outlier,
+is_fare_outlier,
+is_aeroporto,
 -- Reaproveita status_registro em vez de recalcular a classificação (evita as duas
 -- lógicas divergirem de novo, como já aconteceu antes com REJEITADO_VELOCIDADE_ANORMAL)
 status_registro AS rejection_reason
@@ -153,6 +185,7 @@ fare_amount,
 tip_amount,
 total_amount,
 payment_type,
+airport_fee,
 passenger_count,
 ratecode_id,
 store_and_fwd_flag,
@@ -167,7 +200,11 @@ day_part,
 pickup_day,
 final_de_semana,
 is_estorno,
-is_speed_outlier
+is_speed_outlier,
+is_distance_outlier,
+is_tip_outlier,
+is_fare_outlier,
+is_aeroporto
 FROM stg_yellow_trips
 WHERE status_registro = 'APROVADO';
 
