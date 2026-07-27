@@ -297,8 +297,8 @@ GROUP BY congestion_surcharge ORDER BY qnt DESC;
 WITH manhattan_ids AS (SELECT LocationID FROM raw_zone_lookup WHERE Borough = 'Manhattan')
 SELECT congestion_surcharge, COUNT(*) AS qnt
 FROM raw_trips
-WHERE PULocationID IS NOT DISTINCT FROM (SELECT LocationID FROM manhattan_ids)
-  AND DOLocationID IS NOT DISTINCT FROM (SELECT LocationID FROM manhattan_ids)
+WHERE PULocationID NOT IN (SELECT LocationID FROM manhattan_ids)
+  AND DOLocationID NOT IN (SELECT LocationID FROM manhattan_ids)
 GROUP BY congestion_surcharge ORDER BY qnt DESC;
 
 -- Airport_fee 
