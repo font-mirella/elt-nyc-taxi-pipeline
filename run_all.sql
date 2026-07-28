@@ -4,3 +4,10 @@
 .read staging/02_staging_trips.sql
 .read staging/02_staging_zone_lookup.sql
 .read quality/01_staging_checks.sql
+.read model/dims/01_dim_data.sql
+.read model/dims/02_dim_hora.sql
+.read model/dims/03_dim_zona.sql
+.read model/dims/04_dim_pagamento.sql
+.read model/dims/05_dim_atributos_corrida.sql
+.read model/facts/01_fato_corrida.sql
+.read quality/02_model_checks.sql
