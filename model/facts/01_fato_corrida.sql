@@ -80,5 +80,5 @@ JOIN dim_zona z_pu ON z_pu.location_id = a.pu_location_id
 JOIN dim_zona z_do ON z_do.location_id = a.do_location_id
 JOIN dim_atributos_corrida ja
     ON ja.vendor_id = a.vendor_id
-    AND ja.ratecode_id IS NOT DISTINCT FROM a.ratecode_id
-    AND ja.store_and_fwd_flag IS NOT DISTINCT FROM a.store_and_fwd_flag;
+    AND ja.ratecode_id = COALESCE(a.ratecode_id, -1)                       
+    AND ja.store_and_fwd_flag = COALESCE(a.store_and_fwd_flag, 'N/A');
