@@ -52,7 +52,7 @@ FROM raw_trips
 WHERE tpep_pickup_datetime < '2024-01-01' OR tpep_pickup_datetime >= '2025-01-01';
 
 -- 18 corridas fora de JANEIRO/2024.
-SELECT COUNT(*) AS total_fora_de_2024
+SELECT COUNT(*) AS total_fora_de_jan_2024
 FROM raw_trips
 WHERE tpep_pickup_datetime < '2024-01-01' OR tpep_pickup_datetime >= '2024-02-01';
 

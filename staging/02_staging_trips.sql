@@ -127,8 +127,8 @@ COALESCE(airport_fee, 0) > 0 AS is_aeroporto,
 -- distância zero + cobrança é o padrão esperado de tarifa fixa/negociada, não anomalia.
 CASE
     -- regras_limpeza.md item 1: fora do escopo temporal do desafio - mesmo limite auditado
-    -- em quality/00_raw_checks.sql (15 linhas fora do ano 2024)
-    WHEN (pickup_datetime < '2024-01-01' OR pickup_datetime >= '2025-01-01') THEN 'REJEITADO_FORA_DO_PERIODO'
+    -- em quality/00_raw_checks.sql (18 linhas fora de jan/2024)
+    WHEN (pickup_datetime < '2024-01-01' OR pickup_datetime >= '2024-02-01') THEN 'REJEITADO_FORA_DO_PERIODO'
     -- regras_limpeza.md item 1: dropoff antes do pickup viola a física do evento - limite
     -- estrito (<), igual ao auditado em quality/00_raw_checks.sql (56 linhas); dropoff==pickup
     -- é duração zero legítima (mesma categoria de trip_distance=0), não é a mesma anomalia

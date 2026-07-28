@@ -23,7 +23,7 @@ como *rejected record*.
 
 ## Decisões (fecham as pendências de `perfilamento_notas.md` e `hipotese_grao.md` §8)
 
-### 1. Datas inválidas — 15 corridas fora de jan/2024 + 56 com dropoff antes do pickup
+### 1. Datas inválidas — 18 corridas fora de jan/2024 + 56 com dropoff antes do pickup
 
 *(Pendência 1 do perfilamento; §8.7 da hipótese de grão.)*
 
@@ -31,12 +31,12 @@ como *rejected record*.
 antes do pickup viola a física básica do evento. Nenhum dos dois casos tem leitura de
 negócio que os explique (diferente dos valores negativos, que têm causa identificada).
 
-**Regra:** **Excluir** as 71 linhas da `staging_trips`/`fato_corrida`, antes de construir
+**Regra:** **Excluir** as 74 linhas da `staging_trips`/`fato_corrida`, antes de construir
 `dim_data`/`dim_hora` (elas não devem influenciar os limites dessas dimensões). Registrar
 cada linha excluída, com o motivo (`fora_do_periodo` / `dropoff_antes_pickup`), em
 `quality/rejected_records.sql` ou tabela equivalente — nunca um `DELETE` sem rastro.
 
-**Por quê excluir, e não flag:** volume desprezível (0,0024% da base) e, ao contrário dos
+**Por quê excluir, e não flag:** volume desprezível (0,0025% da base) e, ao contrário dos
 estornos, esses casos não representam um evento de negócio real (uma corrida com fim antes
 do início não existiu). Manter na fato só criaria interpretação errada se alguém agregar por
 `dim_data`/`dim_hora` sem saber filtrar.
@@ -197,7 +197,7 @@ revisitar esta decisão.
 
 | # | Achado | Ação |
 |---|---|---|
-| 1 | Datas inválidas (71 linhas) | **Excluir** da fato + registrar rejected record |
+| 1 | Datas inválidas (74 linhas) | **Excluir** da fato + registrar rejected record |
 | 2 | Valores monetários negativos | Manter + `is_estorno` |
 | 3 | `payment_type` 5/6 ausentes | Documentado; dimensão prevê os códigos |
 | 4 | Distância improvável (819) | Manter + `is_distance_outlier` |
