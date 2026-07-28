@@ -8,6 +8,11 @@
 -- consultas de velocidade/eficiência (2, 3) excluem essas linhas por padrão, já que sem isso
 -- a média fica dominada pelo artefato de captura, não pelo trânsito real; as demais mantêm
 -- todas as linhas, e a consulta 5 isola os outliers para comparação.
+--
+-- Velocidade é razão (distância/tempo), não medida aditiva: agregada como SUM(distância) /
+-- SUM(tempo), nunca AVG(razão por linha) - docs/modelagem_dimensional.md §3.5. Média das
+-- razões não equivale à razão das somas e infla o resultado (puxada por corridas curtas, onde
+-- qualquer ruído de captura vira uma velocidade implícita desproporcional).
 
 -- 1. Distribuição da distância das corridas em faixas
 SELECT
@@ -29,7 +34,7 @@ ORDER BY faixa_distancia;
 SELECT
     h.turno,
     COUNT(*) AS qtd_corridas,
-    ROUND(AVG(f.trip_distance / (f.trip_duration_minutes / 60.0)), 1) AS velocidade_media_mph
+    ROUND(SUM(f.trip_distance) / (SUM(f.trip_duration_minutes) / 60.0), 1) AS velocidade_media_mph
 FROM fato_corrida f
 JOIN dim_hora h ON h.id_hora_sk = f.id_hora_embarque_sk
 WHERE f.trip_distance > 0 AND f.trip_duration_minutes > 0 AND NOT f.is_speed_outlier
@@ -48,7 +53,7 @@ SELECT
     END AS faixa_distancia,
     COUNT(*) AS qtd_corridas,
     ROUND(AVG(trip_duration_minutes), 1) AS duracao_media_min,
-    ROUND(AVG(trip_distance / (trip_duration_minutes / 60.0)), 1) AS velocidade_media_mph
+    ROUND(SUM(trip_distance) / (SUM(trip_duration_minutes) / 60.0), 1) AS velocidade_media_mph
 FROM fato_corrida
 WHERE trip_distance > 0 AND trip_duration_minutes > 0 AND NOT is_speed_outlier
 GROUP BY faixa_distancia

@@ -9,7 +9,12 @@
 
 -- 1. Composição média do valor: média de cada componente e sua participação percentual no
 -- total_amount (SUM/SUM, não AVG das razões individuais, para não distorcer com corridas de
--- valor baixo)
+-- valor baixo). congestion_surcharge/airport_fee usam AVG(COALESCE(..., 0)): NULL nessas duas
+-- colunas é ausência estrutural do grupo Flex Fare (regras_limpeza.md item 6), não "sem
+-- informação" - AVG puro pula o NULL e divide por um denominador menor que o das outras
+-- colunas (que não têm NULL), inflando a média e quebrando a comparação entre componentes.
+-- A própria fato trata esse NULL como contribuição zero no total_amount (item 10), então
+-- COALESCE a 0 aqui só torna a média consistente com o dado já materializado.
 SELECT
     ROUND(AVG(fare_amount), 2) AS fare_medio,
     ROUND(AVG(extra), 2) AS extra_medio,
@@ -17,8 +22,8 @@ SELECT
     ROUND(AVG(tip_amount), 2) AS gorjeta_media,
     ROUND(AVG(tolls_amount), 2) AS pedagio_medio,
     ROUND(AVG(improvement_surcharge), 2) AS improvement_medio,
-    ROUND(AVG(congestion_surcharge), 2) AS congestion_medio,
-    ROUND(AVG(airport_fee), 2) AS airport_fee_medio,
+    ROUND(AVG(COALESCE(congestion_surcharge, 0)), 2) AS congestion_medio,
+    ROUND(AVG(COALESCE(airport_fee, 0)), 2) AS airport_fee_medio,
     ROUND(AVG(total_amount), 2) AS total_medio,
     ROUND(100 * SUM(fare_amount) / SUM(total_amount), 1) AS pct_fare,
     ROUND(100 * SUM(extra) / SUM(total_amount), 1) AS pct_extra,
@@ -43,12 +48,14 @@ GROUP BY p.payment_type_desc
 ORDER BY qtd_corridas DESC;
 
 -- 3. Gorjeta média e % de gorjeta sobre a tarifa, por forma de pagamento (só onde fare_amount
--- > 0, para a razão gorjeta/tarifa fazer sentido)
+-- > 0, para a razão gorjeta/tarifa fazer sentido). % é SUM/SUM, não AVG da razão por linha
+-- (docs/modelagem_dimensional.md §3.5) - média de razões infla o resultado puxada pelas
+-- corridas de tarifa baixa, onde qualquer gorjeta vira um percentual desproporcional.
 SELECT
     p.payment_type_desc,
     COUNT(*) AS qtd_corridas,
     ROUND(AVG(f.tip_amount), 2) AS gorjeta_media,
-    ROUND(100 * AVG(f.tip_amount / NULLIF(f.fare_amount, 0)), 1) AS pct_gorjeta_media
+    ROUND(100 * SUM(f.tip_amount) / SUM(f.fare_amount), 1) AS pct_gorjeta_media
 FROM fato_corrida f
 JOIN dim_pagamento p ON p.id_pagamento_sk = f.id_pagamento_sk
 WHERE f.fare_amount > 0
