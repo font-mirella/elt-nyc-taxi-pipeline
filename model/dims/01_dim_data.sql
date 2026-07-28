@@ -15,12 +15,14 @@ SELECT
     EXTRACT(YEAR FROM data) AS ano,
     EXTRACT(MONTH FROM data) AS mes,
     EXTRACT(DAY FROM data) AS dia,
+    -- DAYOFWEEK no DuckDB é 0-indexado com domingo=0 (validado: DAYOFWEEK('2024-01-01') = 1,
+    -- e 2024-01-01 é segunda-feira) - não confundir com a convenção 1=domingo/7=sábado.
     DAYOFWEEK(data) AS dia_semana_num,
     CASE DAYOFWEEK(data)
-        WHEN 1 THEN 'Domingo' WHEN 2 THEN 'Segunda' WHEN 3 THEN 'Terça'
-        WHEN 4 THEN 'Quarta'  WHEN 5 THEN 'Quinta'  WHEN 6 THEN 'Sexta'
-        WHEN 7 THEN 'Sábado'
+        WHEN 0 THEN 'Domingo' WHEN 1 THEN 'Segunda' WHEN 2 THEN 'Terça'
+        WHEN 3 THEN 'Quarta'  WHEN 4 THEN 'Quinta'  WHEN 5 THEN 'Sexta'
+        WHEN 6 THEN 'Sábado'
     END AS dia_semana_nome,
-    DAYOFWEEK(data) IN (1, 7) AS fim_de_semana
+    DAYOFWEEK(data) IN (0, 6) AS fim_de_semana
 FROM datas
 ORDER BY data;

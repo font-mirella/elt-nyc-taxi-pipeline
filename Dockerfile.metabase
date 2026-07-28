@@ -1,0 +1,38 @@
+# Baseado no Dockerfile oficial de motherduckdb/metabase_duckdb_driver.
+#
+# A imagem oficial metabase/metabase é Alpine (musl): falta libstdc++.so.6 que o driver
+# nativo do DuckDB exige. Tentar suprir isso com gcompat (glibc-compat shim) resolve o erro
+# de lib faltando, mas troca por outro pior - um SIGSEGV em init_have_lse_atomics, bug
+# conhecido do gcompat em detecção de CPU no ARM64 (Apple Silicon). A solução correta,
+# documentada pelo próprio driver, é rodar sobre uma base Debian/glibc de verdade.
+FROM eclipse-temurin:21-jre-jammy
+
+ARG METABASE_VERSION=0.62.5
+ARG METABASE_DUCKDB_DRIVER_VERSION=1.5.4.0
+
+ENV MB_PLUGINS_DIR=/home/metabase/plugins/
+
+# UID/GID fixos (não deixar useradd escolher automaticamente): o volume nomeado
+# metabase-data persiste entre rebuilds, e um UID que muda de build pra build quebra a
+# permissão de escrita nele (Docker não faz re-chown automático em volume já existente).
+RUN groupadd -r -g 2000 metabase && useradd -r -u 2000 -g metabase metabase
+
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    ca-certificates \
+    && rm -rf /var/lib/apt/lists/*
+
+RUN mkdir -p /home/metabase/plugins /home/metabase/data && \
+    chown -R metabase:metabase /home/metabase
+
+WORKDIR /home/metabase
+ADD --chown=metabase:metabase https://downloads.metabase.com/v${METABASE_VERSION}/metabase.jar /home/metabase/
+ADD --chown=metabase:metabase https://github.com/motherduckdb/metabase_duckdb_driver/releases/download/${METABASE_DUCKDB_DRIVER_VERSION}/duckdb.metabase-driver.jar /home/metabase/plugins/
+
+RUN chmod 755 /home/metabase/metabase.jar && \
+    chmod 755 /home/metabase/plugins/duckdb.metabase-driver.jar
+
+EXPOSE 3000
+
+USER metabase
+
+CMD ["java", "-jar", "/home/metabase/metabase.jar"]

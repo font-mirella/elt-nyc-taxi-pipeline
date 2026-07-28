@@ -11,3 +11,5 @@
 .read model/dims/05_dim_atributos_corrida.sql
 .read model/facts/01_fato_corrida.sql
 .read quality/02_model_checks.sql
+.read analytics/01_consultas_tempo.sql
+.read analytics/02_consultas_geografia.sql

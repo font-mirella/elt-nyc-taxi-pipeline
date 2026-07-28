@@ -58,6 +58,33 @@ docker compose build
 docker compose run --rm duckdb warehouse.duckdb < run_all.sql
 ```
 
+## Visualização em BI (Metabase)
+
+`docker-compose.yml` inclui um serviço `metabase` para explorar `warehouse.duckdb` num
+dashboard interativo, sem sair do ambiente Docker do projeto. `Dockerfile.metabase` builda
+o Metabase + driver DuckDB community sobre uma base Debian/glibc (`eclipse-temurin:21-jre-jammy`)
+em vez da imagem oficial `metabase/metabase` (Alpine/musl) — a base Alpine não tem
+`libstdc++.so.6`, exigida pelo driver nativo do DuckDB, e completar isso com `gcompat` troca
+o erro por um `SIGSEGV` em `init_have_lse_atomics` (bug do `gcompat` em detecção de CPU no
+ARM64/Apple Silicon). É a solução documentada pelo próprio
+[driver community](https://github.com/motherduckdb/metabase_duckdb_driver#docker), não um contorno.
+
+```bash
+# warehouse.duckdb precisa já existir - rode o pipeline primeiro
+docker compose up -d --build metabase
+```
+
+Depois, em `http://localhost:3180` (porta ajustável em `docker-compose.yml` se colidir com
+outro serviço local):
+
+1. Crie a conta de administrador na primeira vez que abrir.
+2. **Add a database** → tipo **DuckDB** → caminho do arquivo: `/data/warehouse.duckdb`.
+3. Ative **"Establish a read-only connection"** — o volume está montado `:ro` no Docker, e
+   o driver do DuckDB abre em leitura-e-escrita por padrão; sem esse toggle a conexão falha
+   com `IO Error: Cannot open file ... Read-only file system`.
+4. Depois de rodar o pipeline de novo (schema mudou, ex. tabela nova), clique em
+   **Sync database schema** nas configurações da conexão para o Metabase reconhecer.
+
 Não é necessário instalar o DuckDB localmente. Depois do passo 1 (manual, pois os dados brutos não ficam no Git), o pipeline é reconstruído do zero só com os comandos Docker acima, sem nenhuma edição manual dos dados.
 
 ## Camadas do pipeline

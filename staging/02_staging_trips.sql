@@ -81,10 +81,12 @@ CASE
     ELSE 'Madrugada'
 END AS day_part,
 
+-- DAYOFWEEK no DuckDB é 0-indexado com domingo=0...sábado=6 (validado em
+-- model/dims/01_dim_data.sql) - não a convenção 1=domingo/7=sábado.
 DAYOFWEEK(pickup_datetime) AS pickup_day,
 
 CASE
-    WHEN DAYOFWEEK(pickup_datetime)=1 OR DAYOFWEEK(pickup_datetime)=7
+    WHEN DAYOFWEEK(pickup_datetime)=0 OR DAYOFWEEK(pickup_datetime)=6
     THEN TRUE
     ELSE FALSE
  END AS final_de_semana,
