@@ -51,3 +51,17 @@ SELECT CASE
     THEN error('fato_corrida: FK nula encontrada - dimensao nao cobre alguma combinacao de approved_trips')
     ELSE 'ok: nenhuma FK nula em fato_corrida'
 END AS check_fks_nao_nulas;
+
+-- Regra do §2.4 de docs/modelagem_dimensional.md: nenhuma coluna de atributo das dimensões
+-- pode ser NULL. Sem o valor reservado, um filtro corriqueiro descarta as 140.114 linhas 
+-- Flex Fare em silêncio, por lógica ternária.
+SELECT CASE
+    WHEN (
+        SELECT COUNT(*) FROM dim_atributos_corrida
+        WHERE ratecode_id IS NULL OR store_and_fwd_flag IS NULL
+           OR ratecode_desc IS NULL OR store_and_fwd_desc IS NULL
+    ) > 0
+    THEN error('dim_atributos_corrida: coluna de atributo nula - valor reservado (-1 / N/A) nao foi aplicado')
+    ELSE 'ok: nenhuma coluna de atributo nula em dim_atributos_corrida'
+END AS check_dim_atributos_sem_nulos;
+

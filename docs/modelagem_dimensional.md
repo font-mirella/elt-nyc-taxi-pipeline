@@ -64,24 +64,46 @@ independentemente da ordem de leitura ou das demais linhas.
 direto, sem tradução intermediária. Os campos descritivos (`zone`, `borough`) são atributos, não
 chave: são rótulos textuais, sujeitos a revisão pela TLC entre versões do arquivo de referência.
 
-### 2.4 Membros obrigatórios de "Desconhecido" e "Não se aplica"
+### 2.4 Como o modelo representa ausência
 
-Toda dimensão com atributo proveniente de coluna anulável recebe **dois membros criados
-explicitamente**, com chaves reservadas:
+Duas colunas da fonte chegam vazias em parte das linhas: `RatecodeID` e `store_and_fwd_flag`
+são nulos nas 140.162 corridas de `payment_type = 0` (Flex Fare), porque esse tipo de registro
+não tem esses códigos. Não é falha de captura — é ausência estrutural.
 
-| Chave | Membro | Quando se aplica |
-|---|---|---|
-| `-1` | Não se aplica | Ausência estrutural: as 140.162 linhas de `payment_type = 0` (Flex Fare), em que `RatecodeID` e `store_and_fwd_flag` são nulos por natureza do registro |
-| `-2` | Desconhecido | Valor existe mas não é identificável: `RatecodeID = 99` ("Null/unknown" no dicionário) |
+O modelo não propaga esse `NULL`, por uma razão prática: `NULL` não responde a comparação. Uma
+consulta corriqueira como `WHERE ratecode_id <> 99` descartaria as 140.162 linhas junto com as
+de código 99, porque `NULL <> 99` não é verdadeiro — e o número sairia errado sem dar erro
+nenhum. Daí a regra:
 
-Os dois são distintos porque têm causas diferentes: uni-los perderia a informação de que o
-registro é Flex Fare. As FKs da fato apontam para esses membros em vez de carregarem `NULL`, o
-que preserva a contagem do grão sob `INNER JOIN` — sem eles, as 140.162 linhas do grupo Flex
-Fare não encontrariam correspondência na dimensão.
+> Nenhuma FK da fato é nula, e nenhuma coluna de atributo das dimensões é nula.
+
+A primeira metade preserva a contagem do grão: sob `INNER JOIN`, uma FK nula faria as 140.162
+corridas Flex Fare sumirem. A segunda metade evita o descarte silencioso descrito acima.
+
+Os valores reservados são `-1` para colunas numéricas e `'N/A'` para colunas de texto — nenhum
+dos dois existe no domínio da fonte, então não se confundem com dado real. Não há valor
+reservado para "desconhecido" porque a fonte já tem o seu: `RatecodeID = 99` ("Null/unknown"
+no dicionário TLC).
+
+Onde o valor reservado é gravado depende da dimensão:
+
+- **Dimensão de chave natural única** — a ausência vira um membro próprio, cuja chave
+  substituta é o valor reservado, e a FK da fato aponta para ele.
+- **`dim_atributos_corrida` (junk)** — o valor reservado vai na **coluna de atributo**, não na
+  chave. Um membro `-1` único teria de representar as combinações de nulos dos três vendors ao
+  mesmo tempo, e o `vendor_id` se perderia. Cada combinação observada mantém linha própria com
+  chave sequencial, e o que muda é o conteúdo: `ratecode_id = -1`, `store_and_fwd_flag = 'N/A'`.
+
+A regra vale para colunas de atributo das dimensões, não para as medidas da fato.
+`passenger_count`, `congestion_surcharge` e `airport_fee` são nulas nas mesmas 140.114 linhas
+Flex Fare e continuam assim de propósito: `SUM` e `AVG` ignoram `NULL`, enquanto um `0` no
+lugar seria lido como "não pagou" e distorceria a média. Valor reservado não serve aqui, porque 
+um `-1` numa medida corromperia a soma. Em contrapartida, filtro sobre medida nula descarta essas 
+linhas, e o tratamento fica a cargo de cada consulta.
 
 `dim_zona` é exceção: os valores `'N/A'` e `'Unknown'` de `borough`, `zone` e `service_zone` já
 chegam normalizados como `'Desconhecido'` pelo `staging_zone_lookup`, então a dimensão não
-precisa de membro próprio para eles.
+não precisa de valor reservado próprio.
 
 ---
 
@@ -114,9 +136,9 @@ deliberadas.
 fecha em apenas 74,3% das linhas (§8.11 de `hipotese_grao.md`). É o valor que a fonte declara ter
 sido cobrado, com autoridade que um total recalculado não teria. Fica.
 
-**As cinco flags** (`is_estorno`, `is_tip_outlier`, `is_distance_outlier`, `is_fare_outlier`,
-`is_aeroporto`) são funções determinísticas de medidas que já estão na fato — poderiam ser
-recalculadas a cada consulta. São materializadas assim mesmo, ver §3.4.
+**As seis flags** (`is_estorno`, `is_speed_outlier`, `is_tip_outlier`, `is_distance_outlier`,
+`is_fare_outlier`, `is_aeroporto`) são funções determinísticas de medidas que já estão na fato —
+poderiam ser recalculadas a cada consulta. São materializadas assim mesmo, ver §3.4.
 
 ### 3.4 Por que flags redundantes são materializadas
 
@@ -191,9 +213,11 @@ Cada coluna disponível ao fim do staging e seu destino no modelo, com a justifi
 | `is_distance_outlier` | `fato_corrida` | Qualidade da linha, limiar congelado (§3.4) |
 | `is_tip_outlier` | `fato_corrida` | Qualidade da linha, limiar congelado (§3.4) |
 | `is_fare_outlier` | `fato_corrida` | Qualidade da linha: valor no teto de sistema |
+| `is_speed_outlier` | `fato_corrida` | Qualidade da linha, limiar congelado (§3.4): velocidade implícita `> 50 mph`, validada por quantil (p99,9 = 49,1 mph). Regra 5 de `regras_limpeza.md` |
 | `is_aeroporto` | `fato_corrida` | `COALESCE(airport_fee, 0) > 0`. Não pode ir para `dim_zona`: o critério depende de uma medida da corrida, e a mesma zona tem corridas com e sem a taxa |
 | Dia da semana, fim de semana | `dim_data` | Função exclusiva da data |
-| Turno, faixa de pico | `dim_hora` | Função exclusiva da hora do dia |
+| Turno | `dim_hora` | Função exclusiva da hora do dia |
+| Faixa de pico | `dim_hora` | Derivada do volume real de corridas por hora. Recalculada a cada carga, portanto depende do período carregado |
 
 ---
 
