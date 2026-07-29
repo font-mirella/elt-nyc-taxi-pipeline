@@ -39,6 +39,8 @@ model/
 analytics/      # consultas finais, uma por perspectiva de negócio (tempo, geografia, financeiro, operação)
 quality/        # consultas de perfilamento e verificações de qualidade (auditoria)
 docs/           # decisões tomadas, alternativas descartadas, papéis da equipe, glossário
+                # Relatório Final - PS LED 2026 - Grupo 11.pdf — documento consolidado (visão geral,
+                # dicionário, perfilamento, limpeza, modelagem, papéis, uso de LLM)
 Dockerfile / docker-compose.yml  # ambiente DuckDB com versão fixa, sem instalação local
 run_all.sql     # reconstrói o pipeline inteiro do zero, na ordem correta
 ```
@@ -95,6 +97,10 @@ Não é necessário instalar o DuckDB localmente. Depois do passo 1 (manual, poi
 4. **Modelo dimensional (OLAP)** — pelo menos 1 tabela fato e 3 dimensões, com grão explícito e chaves justificadas.
 5. **Consumo analítico** — consultas finais sobre o modelo, cobrindo tempo, geografia, financeiro e operação.
 
+## Documentação
+
+O documento consolidado — visão geral do desafio, dicionário de dados, perfilamento, regras de limpeza, modelagem dimensional, papéis da equipe e uso de LLM — está em [`docs/Relatório Final - PS LED 2026 - Grupo 11.pdf`](docs/Relatório Final - PS LED 2026 - Grupo 11.pdf). Os documentos de origem individuais (`docs/*.md`) permanecem no repositório como registro detalhado de cada etapa.
+
 ## Princípios do desafio
 
 - **ELT, não ETL**: transformação acontece dentro do DuckDB, nunca antes da carga.
@@ -108,11 +114,11 @@ Não é necessário instalar o DuckDB localmente. Depois do passo 1 (manual, poi
 
 | Integrante | Papel |
 |---|---|
-| _a definir_ | |
-| _a definir_ | |
-| _a definir_ | |
-| _a definir_ | |
-| _a definir_ | |
+| Esdras Albino | Extração e configuração de ambiente; staging/tratamento; consumo analítico |
+| Pedro Alves | Extração e configuração de ambiente |
+| Mirella Fontinelle | Perfilamento; documentação |
+| Eduarda Torres | Perfilamento; modelagem dimensional; consumo analítico |
+| Larissa Almeida | Perfilamento |
 
 ## Fluxo de trabalho
 
